@@ -448,3 +448,18 @@ class Model(metaclass=ModelMeta):
             if k in cls.meta.fields_display:
                 setattr(model, k + '_display', v)
         return model
+
+
+class ModelFlags(IntEnum):
+
+    # support create xxx_g
+    songs_g = 0x0001
+    albums_g = 0x0002
+    artists_g = 0x0004
+    playlists_g = 0x0008
+
+    get = 0x0100  # allow get
+    batch = 0x0200  # allow list
+
+    multi_quality = 0x1000
+    v2_api = 0x2000
