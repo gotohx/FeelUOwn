@@ -1,8 +1,8 @@
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QWidget, QCheckBox, QHBoxLayout
 
-from fuocore.reader import wrap
-from fuocore.models import SearchType
+from feeluown.utils.reader import wrap
+from feeluown.models import SearchType
 from feeluown.widgets.tabbar import Tab
 from feeluown.widgets.magicbox import KeySourceIn, KeyType
 from feeluown.containers.table import Renderer
@@ -102,7 +102,7 @@ class SearchResultRenderer(Renderer):
             source_in = self._app.browser.local_storage.get(KeySourceIn, None)
             if source_in is not None:
                 query['source_in'] = source_in
-            self._app.browser.goto(uri='/search', query=query)
+            self._app.browser.goto(page='/search', query=query)
         return cb
 
 

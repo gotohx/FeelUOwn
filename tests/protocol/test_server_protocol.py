@@ -1,13 +1,18 @@
 import asyncio
 from unittest import mock, TestCase
 
-from fuocore.protocol import FuoServerProtocol
+import pytest
+
+from feeluown.rpc import FuoServerProtocol
 
 
 async def coro():
     return None
 
 
+# ignore RuntimeWaarnig:
+# coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+@pytest.mark.filterwarnings('ignore:coroutine')
 class TestFuoServerProtocol(TestCase):
     def setUp(self):
         self.loop = asyncio.new_event_loop()

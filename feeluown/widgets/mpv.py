@@ -1,12 +1,7 @@
 from PyQt5.QtCore import QMetaObject, pyqtSlot
 from PyQt5.QtOpenGL import QGLContext
 
-# HELP: 需要 import GL 模块，否则在 Linux(Ubuntu 18.04) 下会出现 seg fault
-from OpenGL import GL  # noqa
-
-from mpv import _mpv_get_sub_api, _mpv_opengl_cb_set_update_callback, \
-        _mpv_opengl_cb_init_gl, OpenGlCbGetProcAddrFn, _mpv_opengl_cb_draw, \
-        _mpv_opengl_cb_report_flip, MpvSubApi, OpenGlCbUpdateFn, _mpv_opengl_cb_uninit_gl
+from mpv import MpvRenderContext, OpenGlCbGetProcAddrFn
 
 from feeluown.gui.widgets.video import VideoOpenGLWidget
 
@@ -36,36 +31,26 @@ class MpvOpenGLWidget(VideoOpenGLWidget):
     def __init__(self, app, parent=None):
         super().__init__(app=app, parent=parent)
         self._app = app
-        self.mpv_gl = _mpv_get_sub_api(app.player._mpv.handle,
-                                       MpvSubApi.MPV_SUB_API_OPENGL_CB)
-        self.on_update_c = OpenGlCbUpdateFn(self.on_update)
-        self.on_update_fake_c = OpenGlCbUpdateFn(self.on_update_fake)
+        self.mpv = self._app.player._mpv  # noqa
+        self.ctx = None
         self.get_proc_addr_c = OpenGlCbGetProcAddrFn(get_proc_addr)
-        self.frameSwapped.connect(self.swapped)
-
-        self._mpv_gl_inited = False
-
-    def shutdown(self):
-        if self._mpv_gl_inited:
-            self.makeCurrent()
-            if self.mpv_gl:
-                _mpv_opengl_cb_set_update_callback(
-                    self.mpv_gl, self.on_update_fake_c, None)
-            _mpv_opengl_cb_uninit_gl(self.mpv_gl)
-            self.doneCurrent()
 
     def initializeGL(self):
-        _mpv_opengl_cb_init_gl(self.mpv_gl, None, self.get_proc_addr_c, None)
-        _mpv_opengl_cb_set_update_callback(self.mpv_gl, self.on_update_c, None)
-        self._mpv_gl_inited = True
-        self.context().aboutToBeDestroyed.connect(self.shutdown)
+        params = {'get_proc_address': self.get_proc_addr_c}
+        self.ctx = MpvRenderContext(self.mpv,
+                                    'opengl',
+                                    opengl_init_params=params)
+        self.ctx.update_cb = self.on_update
 
     def paintGL(self):
         # compatible with HiDPI display
-        ratio = self.context().screen().devicePixelRatio()
+        ratio = self._app.devicePixelRatio()
         w = int(self.width() * ratio)
         h = int(self.height() * ratio)
-        _mpv_opengl_cb_draw(self.mpv_gl, self.defaultFramebufferObject(), w, -h)
+        opengl_fbo = {'w': w,
+                      'h': h,
+                      'fbo': self.defaultFramebufferObject()}
+        self.ctx.render(flip_y=True, opengl_fbo=opengl_fbo)
 
     @pyqtSlot()
     def maybe_update(self):
@@ -73,25 +58,15 @@ class MpvOpenGLWidget(VideoOpenGLWidget):
             self.makeCurrent()
             self.paintGL()
             self.context().swapBuffers(self.context().surface())
-            self.swapped()
             self.doneCurrent()
         else:
             self.update()
 
     def on_update(self, ctx=None):
-        # HELP: maybeUpdate 中的部分逻辑需要在主线程中执行，
-        # 而 QMetaObject.invokeMethod 似乎正好可以达到这个目标。
-        # 我们将 maybe_update 标记为 pyqtSlot，这样才能正确的 invoke。
+        # maybe_update method should run on the thread that creates the
+        # OpenGLContext, which in general is the main thread.
+        # QMetaObject.invokeMethod can do this trick.
         QMetaObject.invokeMethod(self, 'maybe_update')
-
-    def on_update_fake(self, ctx=None):
-        pass
-
-    def swapped(self):
-        _mpv_opengl_cb_report_flip(self.mpv_gl, 0)
-
-    def closeEvent(self, _):
-        self.shutdown()
 
 
 # TODO: 实现 MpvEmbeddedWidget

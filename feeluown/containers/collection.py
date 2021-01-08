@@ -1,11 +1,11 @@
 from PyQt5.QtWidgets import QFrame, QHBoxLayout, QSplitter
 from PyQt5.QtGui import QPixmap, QImage
 
-from fuocore import aio
-from fuocore.reader import RandomSequentialReader
-from fuocore.media import Media, MediaType
-from fuocore.models.uri import reverse
-from feeluown.helpers import async_run
+from feeluown.utils import aio
+from feeluown.utils.reader import RandomSequentialReader
+from feeluown.media import Media, MediaType
+from feeluown.models.uri import reverse
+from feeluown.gui.helpers import async_run
 
 from feeluown.widgets.collection import CollectionTOCView, CollectionTOCModel, \
     CollectionBody

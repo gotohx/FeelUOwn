@@ -26,11 +26,11 @@ from PyQt5.QtWidgets import (
     QAbstractItemDelegate, QListView, QFrame,
 )
 
-from fuocore import aio
-from fuocore.reader import wrap
-from fuocore.excs import ProviderIOError
-from fuocore.models.uri import reverse
-from feeluown.helpers import ItemViewNoScrollMixin, resize_font
+from feeluown.utils import aio
+from feeluown.utils.reader import wrap
+from feeluown.excs import ProviderIOError
+from feeluown.models.uri import reverse
+from feeluown.gui.helpers import ItemViewNoScrollMixin, resize_font
 
 logger = logging.getLogger(__name__)
 

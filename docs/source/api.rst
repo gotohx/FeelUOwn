@@ -44,12 +44,8 @@
                                        |
                                     MpvPlayer
 
-.. automodule:: fuocore.player
+.. automodule:: feeluown.player
    :members:
-
-.. automodule:: fuocore.live_lyric
-   :members:
-
 
 通用管理模块
 ----------------
@@ -89,8 +85,17 @@ GUI 相关管理模块
 .. automodule:: feeluown.uimodels.playlist
    :members:
 
-异常
-------------------
+GUI 组件
+-------------------
 
-.. automodule:: fuocore.excs
+.. autoclass:: feeluown.gui.widgets.LoginDialog
+   :members:
+
+.. autoclass:: feeluown.gui.widgets.CookiesLoginDialog
+   :members:
+
+异常
+-------------------
+
+.. automodule:: feeluown.excs
    :members:

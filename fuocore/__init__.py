@@ -1,13 +1,12 @@
-from fuocore.models import ModelType  # noqa
-from fuocore.player import (
+from feeluown.models import ModelType  # noqa
+from feeluown.player import (
     State as PlayerState,
     PlaybackMode,
     Playlist,
 )  # noqa
 # FIXME: remove this when no one import MpvPlayer from here
-from fuocore.mpvplayer import MpvPlayer  # noqa
-from fuocore.live_lyric import LiveLyric  # noqa
-from .library import Library  # noqa
+from feeluown.player.mpvplayer import MpvPlayer  # noqa
+from feeluown.library import Library  # noqa
 
 
 __all__ = [
@@ -15,5 +14,4 @@ __all__ = [
     'PlayerState',
     'PlaybackMode',
     'Playlist',
-    'LiveLyric',
 ]

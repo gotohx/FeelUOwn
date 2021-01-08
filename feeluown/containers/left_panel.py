@@ -4,7 +4,7 @@ from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtWidgets import QFrame, QLabel, QVBoxLayout, QSizePolicy, QScrollArea, \
     QHBoxLayout
 
-from feeluown.helpers import use_mac_theme
+from feeluown.gui.helpers import use_mac_theme
 from feeluown.widgets.playlists import PlaylistsView
 from feeluown.widgets.provider import ProvidersView
 from feeluown.widgets.collections import CollectionsView
@@ -137,4 +137,4 @@ class _LeftPanel(QFrame):
 
     def show_coll(self, coll):
         coll_id = self._app.coll_uimgr.get_coll_id(coll)
-        self._app.browser.goto(uri='/colls/{}'.format(coll_id))
+        self._app.browser.goto(page='/colls/{}'.format(coll_id))

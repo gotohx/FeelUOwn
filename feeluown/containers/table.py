@@ -8,14 +8,15 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel
 from requests.exceptions import RequestException
 
-from fuocore import ModelType
-from fuocore import aio
-from fuocore.reader import wrap
-from fuocore.media import Media, MediaType
-from fuocore.excs import ProviderIOError
-from fuocore.models import GeneratorProxy, reverse
+from feeluown.utils import aio
+from feeluown.utils.reader import wrap
+from feeluown.media import Media, MediaType
+from feeluown.excs import ProviderIOError
+from feeluown.library import ProviderFlags, ModelState, NotSupported, ModelFlags
+from feeluown.models import GeneratorProxy, reverse, ModelType
 
-from feeluown.helpers import async_run, BgTransparentMixin, disconnect_slots_if_has
+from feeluown.gui.helpers import async_run, BgTransparentMixin, disconnect_slots_if_has
+from feeluown.widgets import TextButton
 from feeluown.widgets.album import AlbumListModel, AlbumListView, AlbumFilterProxyModel
 from feeluown.widgets.artist import ArtistListModel, ArtistListView, \
     ArtistFilterProxyModel
@@ -24,6 +25,7 @@ from feeluown.widgets.video import VideoListModel, VideoListView, \
 from feeluown.widgets.playlist import PlaylistListModel, PlaylistListView, \
     PlaylistFilterProxyModel
 from feeluown.widgets.songs import SongsTableModel, SongsTableView, SongFilterProxyModel
+from feeluown.gui.widgets.comment_list import CommentListView, CommentListModel
 from feeluown.widgets.meta import TableMetaWidget
 from feeluown.widgets.table_toolbar import SongsTableToolbar
 from feeluown.widgets.tabbar import TableTabBarV2
@@ -65,6 +67,7 @@ class Renderer:
         self.artists_table = container.artists_table
         self.videos_table = container.videos_table
         self.playlists_table = container.playlists_table
+        self.comments_table = container.comments_table
         # pylint: disable=protected-access
         self._app = container._app
 
@@ -177,6 +180,12 @@ class Renderer:
         self.container.current_table = None
         self.desc_widget.setText(desc)
         self.desc_widget.show()
+
+    def show_comments(self, comments):
+        self.container.current_table = self.comments_table
+        reader = wrap(comments)
+        model = CommentListModel(reader)
+        self.comments_table.setModel(model)
 
 
 class ArtistRenderer(Renderer):
@@ -313,9 +322,22 @@ class SongsCollectionRenderer(Renderer):
         self.meta_widget.title = collection.name
         self.meta_widget.updated_at = collection.updated_at
         self.meta_widget.created_at = collection.created_at
-        self.show_songs([model for model in collection.models
-                         if model.meta.model_type == ModelType.song])
         self.songs_table.remove_song_func = collection.remove
+        self._show_songs()
+
+        # only show tabbar if description is not empty
+        if self.collection.description:
+            self.tabbar.show()
+            # FIXME: maybe add a playlist/collection mode for tabbar
+            self.tabbar.album_mode()
+            self.tabbar.show_songs_needed.connect(self._show_songs)
+            self.tabbar.show_desc_needed.connect(
+                lambda: self.show_desc(self.collection.description))
+
+    def _show_songs(self):
+        """filter model with other type"""
+        self.show_songs([model for model in self.collection.models
+                         if model.meta.model_type == ModelType.song])
 
 
 class AlbumsCollectionRenderer(Renderer):
@@ -354,8 +376,16 @@ class PlayerPlaylistRenderer(Renderer):
         player = self._app.player
         playlist = player.playlist
 
+        async def clear_playlist():
+            playlist.clear()
+            await self.render()  # re-render
+
         songs = playlist.list()
         self.show_songs(songs=songs.copy())
+        btn = TextButton('清空', self.toolbar)
+        btn.clicked.connect(lambda *args: aio.create_task(clear_playlist()))
+        self.toolbar.add_tmp_button(btn)
+
         self.songs_table.remove_song_func = playlist.remove
 
         # scroll to current song
@@ -373,7 +403,6 @@ class DescLabel(QLabel):
 
         self.setContentsMargins(30, 15, 30, 10)
         self.setWordWrap(True)
-        self.setTextFormat(Qt.RichText)
         self.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
 
@@ -395,6 +424,7 @@ class TableContainer(QFrame, BgTransparentMixin):
         self.artists_table = ArtistListView(parent=self)
         self.videos_table = VideoListView(parent=self)
         self.playlists_table = PlaylistListView(parent=self)
+        self.comments_table = CommentListView(parent=self)
         self.desc_widget = DescLabel(parent=self)
 
         self._tables.append(self.songs_table)
@@ -402,13 +432,16 @@ class TableContainer(QFrame, BgTransparentMixin):
         self._tables.append(self.artists_table)
         self._tables.append(self.playlists_table)
         self._tables.append(self.videos_table)
+        self._tables.append(self.comments_table)
 
         self.songs_table.play_song_needed.connect(
             lambda song: asyncio.ensure_future(self.play_song(song)))
         self.videos_table.play_video_needed.connect(
             lambda video: aio.create_task(self.play_video(video)))
 
-        def goto_model(model): self._app.browser.goto(model=model)
+        def goto_model(model):
+            self._app.browser.goto(model=model)
+
         for signal in [self.songs_table.show_artist_needed,
                        self.songs_table.show_album_needed,
                        self.albums_table.show_album_needed,
@@ -419,6 +452,9 @@ class TableContainer(QFrame, BgTransparentMixin):
 
         self.toolbar.play_all_needed.connect(self.play_all)
         self.songs_table.add_to_playlist_needed.connect(self._add_songs_to_playlist)
+        self.songs_table.about_to_show_menu.connect(self._songs_table_about_to_show_menu)
+        self.songs_table.activated.connect(
+            lambda index: aio.create_task(self._on_songs_table_activated(index)))
 
         self._setup_ui()
 
@@ -556,6 +592,7 @@ class TableContainer(QFrame, BgTransparentMixin):
         self._app.player.play_songs(songs=songs)
 
     async def show_model(self, model):
+        model = self._app.library.cast_model_to_v1(model)
         model_type = ModelType(model.meta.model_type)
         if model_type == ModelType.album:
             renderer = AlbumRenderer(model)
@@ -594,3 +631,56 @@ class TableContainer(QFrame, BgTransparentMixin):
     def _add_songs_to_playlist(self, songs):
         for song in songs:
             self._app.playlist.add(song)
+
+    def _songs_table_about_to_show_menu(self, ctx):
+        add_action = ctx['add_action']
+        models = ctx['models']
+        if not models or models[0].meta.model_type != ModelType.song:
+            return
+
+        song = models[0]
+        goto = self._app.browser.goto
+
+        if self._app.library.check_flags_by_model(song, ProviderFlags.similar):
+            add_action('相似歌曲', lambda *args: goto(model=song, path='/similar'))
+        if self._app.library.check_flags_by_model(song, ProviderFlags.hot_comments):
+            add_action('歌曲评论', lambda *args: goto(model=song, path='/hot_comments'))
+
+    async def _on_songs_table_activated(self, index):
+        """
+        QTableView should have no IO operations.
+        """
+        from feeluown.widgets.songs import Column
+
+        song = index.data(Qt.UserRole)
+        if index.column() == Column.song:
+            self.songs_table.play_song_needed.emit(song)
+        else:
+            try:
+                song = await aio.run_in_executor(
+                    None, self._app.library.song_upgrade, song)
+            except NotSupported:
+                assert ModelFlags.v2 & song.meta.flags
+                self._app.show_msg('资源提供放不支持该功能')
+                logger.info(f'provider:{song.source} does not support song_get')
+                song.state = ModelState.cant_upgrade
+            except (ProviderIOError, RequestException) as e:
+                # FIXME: we should only catch ProviderIOError here,
+                # but currently, some plugins such fuo-qqmusic may raise
+                # requests.RequestException
+                logger.exception('upgrade song failed')
+                self._app.show_msg(f'请求失败: {str(e)}')
+            else:
+                if index.column() == Column.artist:
+                    artists = song.artists
+                    if artists:
+                        if len(artists) > 1:
+                            self.songs_table.show_artists_by_index(index)
+                        else:
+                            self.songs_table.show_artist_needed.emit(artists[0])
+                elif index.column() == Column.album:
+                    self.songs_table.show_album_needed.emit(song.album)
+        model = self.songs_table.model()
+        topleft = model.index(index.row(), 0)
+        bottomright = model.index(index.row(), 4)
+        model.dataChanged.emit(topleft, bottomright, [])

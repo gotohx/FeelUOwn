@@ -4,12 +4,12 @@ from PyQt5.QtCore import Qt, QRect, QSize, QModelIndex
 from PyQt5.QtGui import QPainter, QBrush, QColor, QLinearGradient, QPalette
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QScrollArea
 
-from fuocore import aio
-from fuocore.models import ModelType
-from fuocore.reader import RandomSequentialReader
+from feeluown.utils import aio
+from feeluown.models import ModelType
+from feeluown.utils.reader import RandomSequentialReader
 
-from feeluown.theme import Light
-from feeluown.helpers import BgTransparentMixin, ItemViewNoScrollMixin
+from feeluown.gui.theme import Light
+from feeluown.gui.helpers import BgTransparentMixin, ItemViewNoScrollMixin
 from feeluown.collection import DEFAULT_COLL_ALBUMS
 from feeluown.containers.bottom_panel import BottomPanel
 from feeluown.containers.table import TableContainer

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from setuptools import setup
+from setuptools import setup, find_packages
 from os import path
 
 import feeluown
@@ -19,43 +19,18 @@ setup(
     license="GPL-3.0",
     author='Cosven',
     author_email='yinshaowen241@gmail.com',
-    packages=[
-        'feeluown',
-
-        # feeluown common
-        'feeluown.entry_points',
-        'feeluown.linux',
-
-        # feeluown gui
-        'feeluown.gui',
-        'feeluown.gui.pages',
-        'feeluown.gui.widgets',
-        'feeluown.widgets',
-        'feeluown.widgets.statusline_items',
-        'feeluown.uimodels',
-        'feeluown.containers',
-
-        # fuocore
-        'fuocore',
-        'fuocore.serializers',
-        'fuocore.cmds',
-        'fuocore.models',
-        'fuocore.protocol',
-    ],
-    py_modules=['mpv'],
+    packages=find_packages(exclude=('tests*',)),
+    py_modules=['mpv', 'mpv_old'],
     package_data={
-        '': ['*.qss',
-             '*.xml',
-             '*.colors',
-             '*.png',
-             '../icons/*.png',
-             '../icons/*.ico',
-             '../icons/*.icns',
+        '': ['linux/*.xml',
+             'icons/*.png',
+             'icons/*.ico',
+             'icons/*.icns',
              'themes/*.qss',
              'themes/*.colors',
              ]
     },
-    python_requires=">=3.5",
+    python_requires=">=3.6",
     url='https://github.com/feeluown/FeelUOwn',
     keywords=['media', 'player', 'application', 'PyQt5', 'Python 3'],
     classifiers=[
@@ -77,8 +52,11 @@ setup(
     install_requires=[
         'janus',
         'requests',
-        'pyopengl',
         'qasync',
+        'tomlkit',
+        'pydantic',
+
+        'typing_extensions;python_version<"3.8"',
     ],
     extras_require={
         'battery': ['fuo-local>=0.2.1',
@@ -89,18 +67,30 @@ setup(
                     ],
         'macOS': ['pyobjc-framework-Cocoa', 'pyobjc-framework-Quartz'],
         'win32': ['pyshortcuts'],
+        'webengine': ['PyQtWebEngine'],
+        'dev': [
+            # lint
+            'flake8',
+            'mypy',
+
+            # unittest
+            'pytest>=5.4.0',
+            'pytest-runner',
+            'pytest-cov',
+            'pytest-asyncio',
+            'pytest-qt',
+            'pytest-mock',
+
+            # docs
+            'sphinx',
+            'sphinx_rtd_theme',
+        ],
     },
-    tests_require=['pytest-runner',
-                   'pytest',
-                   'pytest-cov',
-                   'pytest-asyncio',
-                   'pytest-qt',
-                   'pytest-mock'],
     entry_points={
         'console_scripts': [
             "feeluown=feeluown.__main__:main",
             "fuo=feeluown.__main__:main",
-            "feeluown-genicon=feeluown.install:generate_icon",
+            "feeluown-genicon=feeluown.cli.install:generate_icon",
             # "feeluown-update=feeluown.install:update"
         ]
     },

@@ -1,27 +1,29 @@
 import asyncio
 import logging
 import json
+import os
 import sys
 from functools import partial
 from contextlib import contextmanager
 
-from fuocore import LiveLyric, Library
-from fuocore.dispatch import Signal
-from fuocore.models import Resolver, reverse, resolve, \
+from feeluown.library import Library
+from feeluown.utils.dispatch import Signal
+from feeluown.models import Resolver, reverse, resolve, \
     ResolverNotFound
-from fuocore.playlist import PlaybackMode
-from fuocore.pubsub import (
+from feeluown.player import PlaybackMode
+
+from feeluown.lyric import LiveLyric
+from feeluown.pubsub import (
     Gateway as PubsubGateway,
     HandlerV1 as PubsubHandlerV1,
+    LiveLyricPublisher
 )
 
-from .consts import APP_ICON, STATE_FILE
-from .fm import FM
-from .player import Player
+from feeluown.utils.request import Request
+from feeluown.rpc.server import FuoServer
+from .consts import STATE_FILE
+from .player import FM, Player
 from .plugin import PluginsManager
-from .server import FuoServer
-from .publishers import LiveLyricPublisher
-from .request import Request
 from .version import VersionManager
 from .task import TaskManager
 
@@ -76,7 +78,7 @@ class App:
                     songs.append(song)
             playlist.init_from(songs)
             if songs and self.mode & App.GuiMode:
-                self.browser.goto(uri='/player_playlist')
+                self.browser.goto(page='/player_playlist')
 
             song = state['song']
 
@@ -153,7 +155,7 @@ def attach_attrs(app):
     """初始化 app 属性"""
     loop = asyncio.get_event_loop()
     app.library = Library(app.config.PROVIDERS_STANDBY)
-    app.live_lyric = LiveLyric()
+    app.live_lyric = LiveLyric(app)
     player_kwargs = dict(
         audio_device=bytes(app.config.MPV_AUDIO_DEVICE, 'utf-8')
     )
@@ -179,13 +181,13 @@ def attach_attrs(app):
         from feeluown.uimodels.collection import CollectionUiManager
         from feeluown.collection import CollectionManager
 
-        from .browser import Browser
-        from .hotkey import HotkeyManager
-        from .image import ImgManager
-        from .theme import ThemeManager
-        from .tips import TipsManager
-        from .ui import Ui
-        from .tray import Tray
+        from .gui.browser import Browser
+        from .gui.hotkey import HotkeyManager
+        from .gui.image import ImgManager
+        from .gui.theme import ThemeManager
+        from .gui.tips import TipsManager
+        from .gui.ui import Ui
+        from .gui.tray import Tray
 
         # GUI 的一些辅助管理模块
         app.coll_mgr = CollectionManager(app)
@@ -212,13 +214,25 @@ def create_app(config):
 
     if mode & App.GuiMode:
 
-        from PyQt5.QtCore import Qt
+        from PyQt5.QtCore import Qt, QDir
         from PyQt5.QtGui import QIcon, QPixmap
         from PyQt5.QtWidgets import QApplication, QWidget
 
-        from feeluown.compat import QEventLoop
+        try:
+            # HELP: QtWebEngineWidgets must be imported before a
+            # QCoreApplication instance is created
+            # TODO: add a command line option to control this import
+            import PyQt5.QtWebEngineWidgets  # noqa
+        except ImportError:
+            logger.info('import QtWebEngineWidgets failed')
+
+        from feeluown.utils.compat import QEventLoop
+
+        pkg_root_dir = os.path.dirname(__file__)
+        icons_dir = os.path.join(pkg_root_dir, 'icons')
 
         q_app = QApplication(sys.argv)
+        QDir.addSearchPath('icons', icons_dir)
 
         q_app.setQuitOnLastWindowClosed(not config.ENABLE_TRAY)
         q_app.setApplicationName('FeelUOwn')
@@ -232,7 +246,7 @@ def create_app(config):
             def __init__(self):
                 super().__init__()
                 self.setObjectName('app')
-                QApplication.setWindowIcon(QIcon(QPixmap(APP_ICON)))
+                QApplication.setWindowIcon(QIcon(QPixmap('icons:feeluown.png')))
 
             def closeEvent(self, _):
                 if not self.config.ENABLE_TRAY:

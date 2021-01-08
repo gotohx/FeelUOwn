@@ -6,7 +6,7 @@ import logging.config
 from .consts import LOG_FILE
 
 
-__version__ = '3.6a0'
+__version__ = '3.7a0'
 
 
 dict_config = {
@@ -14,10 +14,12 @@ dict_config = {
     'disable_existing_loggers': False,
     'formatters': {
         'standard': {
-            'format': "[%(asctime)s %(levelname)s %(module)s] : %(message)s",
+            'format': ("[%(asctime)s %(name)s:%(lineno)d] "
+                       "[%(levelname)s]: %(message)s"),
         },
         'thread': {
-            'format': "[%(asctime)s %(levelname)s %(module)s %(thread)d] : %(message)s",
+            'format': ("[%(asctime)s %(name)s:%(lineno)d %(thread)d] "
+                       "[%(levelname)s]: %(message)s"),
         },
     },
     'handlers': {},
@@ -32,7 +34,7 @@ def logger_config(verbose=1, to_file=False):
     :param verbose: verbose level.
                     0: show all (>=)warning level log
                     1: show all info level log
-                    2: show feeluown/fuocore debug level log and all info log
+                    2: show feeluown debug level log and all info log
                     3: show all debug log
     """
     handler = {'level': 'DEBUG', 'formatter': 'standard'}
@@ -65,13 +67,12 @@ def logger_config(verbose=1, to_file=False):
         if verbose >= 3:
             logger['level'] = logging.DEBUG
         else:
-            # set logger for feeluown/fuocore
+            # set logger for feeluown
             fuo_logger = {
                 'handlers': [''],
                 'level': logging.DEBUG,
                 'propagate': False,
             }
             dict_config['loggers']['feeluown'] = fuo_logger
-            dict_config['loggers']['fuocore'] = fuo_logger
 
     logging.config.dictConfig(dict_config)

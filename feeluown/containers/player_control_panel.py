@@ -1,20 +1,21 @@
 import asyncio
 import logging
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics
+from PyQt5.QtCore import Qt, QTimer, QRect
+from PyQt5.QtGui import QFontMetrics, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QLabel, QFrame, QHBoxLayout, QVBoxLayout,
     QPushButton, QSizePolicy, QMenu,
 )
 
-from fuocore import aio
-from fuocore.excs import ProviderIOError
-from fuocore.media import MediaType
-from fuocore.player import PlaybackMode, State
-from feeluown.helpers import async_run
+from feeluown.library import ProviderFlags
+from feeluown.utils import aio
+from feeluown.excs import ProviderIOError
+from feeluown.media import MediaType
+from feeluown.player import PlaybackMode, State
+from feeluown.gui.widgets.lyric import Window as LyricWindow
+from feeluown.gui.helpers import async_run
 from feeluown.widgets import TextButton
-from feeluown.widgets.lyric import Window as LyricWindow
 from feeluown.widgets.volume_button import VolumeButton
 from feeluown.widgets.progress_slider import ProgressSlider
 from feeluown.gui.widgets.labels import ProgressLabel, DurationLabel
@@ -27,8 +28,69 @@ class SongBriefLabel(QLabel):
 
     def __init__(self, app):
         super().__init__(text=self.default_text, parent=None)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
         self._app = app
+
+        # TODO: we can create a label class that roll the text when
+        # the text is longer than the label width
+        self._timer = QTimer()
+        self._txt = self._raw_text = self.default_text
+        self._font_metrics = QFontMetrics(QApplication.font())
+        self._text_rect = self._font_metrics.boundingRect(self._raw_text)
+        # text's position, keep changing to make text roll
+        self._pos = 0
+        self._timer.timeout.connect(self.change_text_position)
+
         self._fetching_artists = False
+
+    def change_text_position(self):
+        if not self.parent().isVisible():
+            self._timer.stop()
+            self._pos = 0
+            return
+        if self._text_rect.width() + self._pos > 0:
+            # control the speed of rolling
+            self._pos -= 5
+        else:
+            self._pos = self.width()
+        self.update()
+
+    def setText(self, text):
+        self._txt = self._raw_text = text
+        self._text_rect = self._font_metrics.boundingRect(self._raw_text)
+        self._pos = 0
+        self.update()
+
+    def enterEvent(self, event):
+        # we do not compare text_rect with self_rect here because of
+        # https://github.com/feeluown/FeelUOwn/pull/425#discussion_r536817226
+        # TODO: find out why
+        if self._txt != self._raw_text:
+            # decrease to make rolling more fluent
+            self._timer.start(150)
+
+    def leaveEvent(self, event):
+        self._timer.stop()
+        self._pos = 0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setFont(QApplication.font())
+        painter.setPen(self._app.palette().color(self._app.palette().Text))
+
+        if self._timer.isActive():
+            self._txt = self._raw_text
+        else:
+            self._txt = self._font_metrics.elidedText(
+                self._raw_text, Qt.ElideRight, self.width())
+
+        painter.drawText(
+            QRect(self._pos, 0, self.width() - self._pos, self.height()),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            self._txt
+        )
 
     def contextMenuEvent(self, e):
         song = self._app.playlist.current_song
@@ -39,16 +101,26 @@ class SongBriefLabel(QLabel):
         menu.hovered.connect(self.on_action_hovered)
         artist_menu = menu.addMenu('查看歌手')
         album_action = menu.addAction('查看专辑')
+
         artist_menu.menuAction().setData({'artists': None, 'song': song})
-        album_action.setData({'song': song})
-        artist_menu.menuAction().triggered.connect(
-            lambda: aio.create_task(self._goto_artists(song)))
+
         album_action.triggered.connect(
             lambda: aio.create_task(self._goto_album(song)))
+
+        if self._app.library.check_flags_by_model(song, ProviderFlags.similar):
+            similar_song_action = menu.addAction('相似歌曲')
+            similar_song_action.triggered.connect(
+                lambda: self._app.browser.goto(model=song, path='/similar'))
+        if self._app.library.check_flags_by_model(song, ProviderFlags.hot_comments):
+            song_comments_action = menu.addAction('歌曲评论')
+            song_comments_action.triggered.connect(
+                lambda: self._app.browser.goto(model=song, path='/hot_comments'))
+
         menu.exec(e.globalPos())
 
     async def _goto_album(self, song):
-        album = await aio.run_in_executor(None, lambda: song.album)
+        album = await aio.run_in_executor(
+            None, lambda: self._app.library.song_upgrade(song).album)
         self._app.browser.goto(model=album)
 
     def on_action_hovered(self, action):
@@ -79,7 +151,8 @@ class SongBriefLabel(QLabel):
                 logger.debug('fetch song.artists for actions')
                 song = data['song']
                 self._fetching_artists = True
-                task = aio.run_in_executor(None, lambda: song.artists)
+                task = aio.run_in_executor(
+                    None, lambda: self._app.library.song_upgrade(song).artists)
                 task.add_done_callback(artists_fetched_cb)
 
 
@@ -188,8 +261,8 @@ class PlayerControlPanel(QFrame):
         # set widget layout
         self.song_source_label.setFixedHeight(20)
         self.progress_slider.setFixedHeight(20)  # half of parent height
-        self.position_label.setFixedWidth(45)
-        self.duration_label.setFixedWidth(45)
+        self.position_label.setFixedWidth(50)
+        self.duration_label.setFixedWidth(50)
         # on macOS, we should set AlignVCenter flag
         self.position_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.like_btn.setFixedSize(15, 15)
@@ -207,7 +280,6 @@ class PlayerControlPanel(QFrame):
         self._sub_top_layout.addSpacing(5)
         self._sub_top_layout.addWidget(self.song_title_label)
         self._sub_top_layout.addSpacing(5)
-        self._sub_top_layout.addStretch(0)
         self._sub_top_layout.addWidget(self.like_btn)
         self._sub_top_layout.addSpacing(8)
         self._sub_top_layout.addWidget(self.mv_btn)
@@ -276,15 +348,12 @@ class PlayerControlPanel(QFrame):
             return
         source_name_map = {p.identifier: p.name
                            for p in self._app.library.list()}
-        font_metrics = QFontMetrics(QApplication.font())
         text = '{} - {}'.format(song.title_display, song.artists_name_display)
         # width -> three button + source label + text <= progress slider
         # three button: 63, source label: 150
-        elided_text = font_metrics.elidedText(
-            text, Qt.ElideRight, self.progress_slider.width() - 200)
         source_name = source_name_map.get(song.source, song.source)
         self.song_source_label.setText(source_name)
-        self.song_title_label.setText(elided_text)
+        self.song_title_label.setText(text)
         loop = asyncio.get_event_loop()
         loop.create_task(self.update_mv_btn_status(song))
 
@@ -298,6 +367,7 @@ class PlayerControlPanel(QFrame):
                     '{} - {}'.format(text, bitrate_text))
 
     async def update_mv_btn_status(self, song):
+        song = self._app.library.cast_model_to_v1(song)
         try:
             mv = await async_run(lambda: song.mv)
         except ProviderIOError:

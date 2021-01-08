@@ -2,7 +2,7 @@ import logging
 from contextlib import contextmanager
 from enum import IntEnum
 
-from mpv import _mpv_set_property_string
+from feeluown.player.mpvplayer import _mpv_set_property_string
 
 from feeluown.gui.widgets.frameless import ResizableFramelessContainer
 
@@ -117,6 +117,7 @@ class VideoShowCtl:
 
     def play_mv(self):
         song = self._app.player.current_song
+        song = self._app.library.cast_model_to_v1(song)
         mv = song.mv if song else None
         if mv is not None:
             if mv.meta.support_multi_quality:
