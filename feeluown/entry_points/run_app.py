@@ -9,7 +9,7 @@ from feeluown.app import (
 )
 from feeluown.cli import oncemain
 from feeluown.fuoexec import fuoexec_load_rcfile, fuoexec_init
-from .base import (
+from base import (
     ensure_dirs,
     setup_config,
     setup_logger,

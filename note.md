@@ -1,0 +1,3 @@
+- 查看是否运行：fuo status
+- 搜索歌曲：fuo search "空空如也"
+- 播放：fuo play ID （id 是 search 结果前面的数字）

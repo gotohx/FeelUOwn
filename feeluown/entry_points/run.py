@@ -1,4 +1,5 @@
 from feeluown.utils.patch import patch_janus
+# from ..utils.patch import patch_janus
 patch_janus()
 
 try:
@@ -13,9 +14,9 @@ else:
 import socket  # noqa: E402
 
 # pylint: disable=wrong-import-position
-from .base import create_config, setup_argparse  # noqa: E402
-from .run_cli import run_cli  # noqa: E402
-from .run_app import run_once, run_forever  # noqa: E402
+from base import create_config, setup_argparse  # noqa: E402
+from run_cli import run_cli  # noqa: E402
+from run_app import run_once, run_forever  # noqa: E402
 
 
 def run():
@@ -56,3 +57,9 @@ def run():
         raise SystemExit("can't connect to fuo daemon.")
 
     return run_forever(args, config)
+
+
+if __name__ == "__main__":
+    # import sys
+    # print(sys.path)
+    run()
