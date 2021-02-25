@@ -2,6 +2,7 @@ import asyncio
 import logging
 import json
 import os
+import signal
 import sys
 from functools import partial
 from contextlib import contextmanager
@@ -10,7 +11,7 @@ from feeluown.library import Library
 from feeluown.utils.dispatch import Signal
 from feeluown.models import Resolver, reverse, resolve, \
     ResolverNotFound
-from feeluown.player import PlaybackMode
+from feeluown.player import PlaybackMode, Playlist
 
 from feeluown.lyric import LiveLyric
 from feeluown.pubsub import (
@@ -101,6 +102,7 @@ class App:
                     player.load_song(song)
 
     def dump_state(self):
+        logger.info("Dump app state")
         playlist = self.playlist
         player = self.player
 
@@ -150,6 +152,25 @@ class App:
         else:
             show_msg(s + '...done')  # done
 
+    def about_to_exit(self):
+        try:
+            logger.info('Do graceful shutdown')
+            self.about_to_shutdown.emit(self)
+            Signal.teardown_aio_support()
+            self.player.stop()
+            self.exit_player()
+        except:  # noqa
+            logger.exception("about-to-exit failed")
+
+    def exit_player(self):
+        self.player.shutdown()  # this cause 'abort trap' on macOS
+
+    def exit(self):
+        self.about_to_exit()
+        loop = asyncio.get_event_loop()
+        loop.stop()
+        loop.close()
+
 
 def attach_attrs(app):
     """初始化 app 属性"""
@@ -159,8 +180,9 @@ def attach_attrs(app):
     player_kwargs = dict(
         audio_device=bytes(app.config.MPV_AUDIO_DEVICE, 'utf-8')
     )
-    app.player = Player(app=app, **(player_kwargs or {}))
-    app.playlist = app.player.playlist
+    app.playlist = Playlist(
+        app, audio_select_policy=app.config.AUDIO_SELECT_POLICY)
+    app.player = Player(app.playlist, **(player_kwargs or {}))
     app.plugin_mgr = PluginsManager(app)
     app.request = Request()
     app.task_mgr = TaskManager(app, loop)
@@ -206,7 +228,7 @@ def attach_attrs(app):
         app.ui = Ui(app)
         if app.config.ENABLE_TRAY:
             app.tray = Tray(app)
-        app.show_msg = app.ui.magicbox.show_msg
+        app.show_msg = app.ui.toolbar.status_line.get_item('notify').widget.show_msg
 
 
 def create_app(config):
@@ -252,11 +274,6 @@ def create_app(config):
                 if not self.config.ENABLE_TRAY:
                     self.exit()
 
-            def exit(self):
-                self.ui.mpv_widget.close()
-                event_loop = asyncio.get_event_loop()
-                event_loop.stop()
-
             def mouseReleaseEvent(self, e):
                 if not self.rect().contains(e.pos()):
                     return
@@ -270,6 +287,14 @@ def create_app(config):
                 App.__init__(self, config)
                 GuiApp.__init__(self)
 
+            def exit_player(self):
+                # Destroy GL context or mpv renderer
+                self.ui.mpv_widget.shutdown()
+                self.player.shutdown()
+
+            def exit(self):
+                QApplication.exit()
+
     else:
         FApp = App
 
@@ -277,6 +302,10 @@ def create_app(config):
     Resolver.setup_aio_support()
     app = FApp(config)
     attach_attrs(app)
+
+    if mode & App.GuiMode:
+        q_app.aboutToQuit.connect(app.about_to_exit)
+
     Resolver.library = app.library
     return app
 
@@ -289,6 +318,7 @@ def init_app(app):
 
     app.plugin_mgr.scan()
     if app.mode & App.GuiMode:
+        app.hotkey_mgr.initialize()
         app.theme_mgr.initialize()
         if app.config.ENABLE_TRAY:
             app.tray.initialize()
@@ -324,17 +354,29 @@ def run_app(app):
             host=app.get_listen_addr(),
             port=23334,
             loop=loop))
+
+    def handle_signal(signum, frame):
+        if signum == signal.SIGTERM:
+            app.exit()
+
+    # App can exit in several ways
+    #
+    # GUI mode
+    # 1. user clicks the tray icon exit button, which triggers QApplication.quit.
+    # 2. SIGTERM is received.
+    # 3. QApplication.quit is called. (For example, User press CMD-Q on macOS.)
+    #
+    # Daemon mode
+    # 1. Ctrl-C
+    # 2. SIGTERM
+    signal.signal(signal.SIGTERM, handle_signal)
     try:
         if not (app.config.MODE & (App.GuiMode | App.DaemonMode)):
             logger.warning('Fuo running with no daemon and no window')
         loop.run_forever()
     except KeyboardInterrupt:
-        # NOTE: gracefully shutdown?
-        pass
-    finally:
-        _shutdown_app(app)
-        loop.stop()
-        loop.close()
+        logger.info('receive keyboard interrupt')
+        app.exit()
 
 
 def run_app_once(app, future):
@@ -343,15 +385,4 @@ def run_app_once(app, future):
     try:
         loop.run_until_complete(future)
     except KeyboardInterrupt:
-        pass
-    finally:
-        _shutdown_app(app)
-        loop.stop()
-        loop.close()
-
-
-def _shutdown_app(app):
-    app.about_to_shutdown.emit(app)
-    app.player.stop()
-    app.player.shutdown()
-    Signal.teardown_aio_support()
+        app.exit()

@@ -1,6 +1,6 @@
 import logging
 from functools import partial, lru_cache
-from typing import Optional, List
+from typing import List
 
 from feeluown.utils import aio
 from feeluown.utils.dispatch import Signal
@@ -9,7 +9,7 @@ from feeluown.models import SearchType, ModelType
 from feeluown.utils.utils import log_exectime
 from .provider import AbstractProvider
 from .provider_v2 import ProviderV2
-from .excs import NotSupported
+from .excs import NotSupported, MediaNotFound
 from .flags import Flags as PF
 from .models import (
     ModelFlags as MF, BaseModel, BriefSongModel, SongModel,
@@ -168,17 +168,14 @@ class Library:
                     partial(provider.search, keyword, type_=type_))
                 fs.append(future)
 
-        results = []
-        # TODO: use async generator when we only support Python 3.6 or above
         for future in aio.as_completed(fs, timeout=timeout):
             try:
                 result = await future
-            except Exception as e:
-                logger.exception(str(e))
+            except:  # noqa
+                logger.exception('search task failed')
+                continue
             else:
-                if result is not None:
-                    results.append(result)
-        return results
+                yield result
 
     @log_exectime
     def list_song_standby(self, song, onlyone=True):
@@ -209,24 +206,40 @@ class Library:
                     break
         return result
 
-    async def a_list_song_standby(self, song, onlyone=True):
+    async def a_list_song_standby(self, song, onlyone=True, source_in=None):
         """async version of list_song_standby
+
+        .. versionadded:: 3.7.5
+             The *source_in* paramter.
         """
-        providers = self._providers_standby or [pvd.identifier for pvd in self.list()]
-        valid_providers = [provider for provider in providers
-                           if provider != song.source]
+        if source_in is None:
+            pvd_ids = self._providers_standby or [pvd.identifier for pvd in self.list()]
+        else:
+            pvd_ids = [pvd.identifier for pvd in self._filter(identifier_in=source_in)]
+        # FIXME(cosven): the model return from netease is new model,
+        # and it does not has url attribute
+        valid_providers = [pvd_id for pvd_id in pvd_ids
+                           if pvd_id != song.source and pvd_id != 'netease']
         q = '{} {}'.format(song.title_display, song.artists_name_display)
-        result_g = await self.a_search(q, source_in=valid_providers)
+        result_g = []
+        async for result in self.a_search(q, source_in=valid_providers):
+            if result is not None:
+                result_g.append(result)
         sorted_standby_list = _extract_and_sort_song_standby_list(song, result_g)
         # choose one or two valid standby
         result = []
         for standby in sorted_standby_list:
-            url = await aio.run_in_executor(None, lambda: standby.url)
-            if url:
-                result.append(standby)
-                if onlyone or len(result) >= 2:
-                    break
+            try:
+                url = await aio.run_in_executor(None, lambda: standby.url)
+            except:  # noqa
+                logger.exception('get standby url failed')
+            else:
+                if url:
+                    result.append(standby)
+                    if onlyone or len(result) >= 2:
+                        break
         return result
+
     #
     # methods for v2
     #
@@ -307,18 +320,47 @@ class Library:
         provider = self.get_or_raise(song.source)
         return provider.song_list_hot_comments(song)
 
-    def song_prepare_media(self, song: BriefSongProtocol, policy) -> Optional[Media]:
+    def song_prepare_media(self, song: BriefSongProtocol, policy) -> Media:
+        provider = self.get(song.source)
+        if provider is None:
+            raise MediaNotFound(f'provider:{song.source} not found')
         if song.meta.flags & MF.v2:
             # provider MUST has multi_quality flag for song
             assert self.check_flags_by_model(song, PF.multi_quality)
-            provider = self.get_or_raise(song.source)
             media, _ = provider.song_select_media(song, policy)
         else:
             if song.meta.support_multi_quality:
                 media, _ = song.select_media(policy)  # type: ignore
             else:
                 url = song.url  # type: ignore
-                media = Media(url) if url else None
+                if url:
+                    media = Media(url)
+                else:
+                    raise MediaNotFound
+        if not media:
+            raise MediaNotFound
+        return media
+
+    def song_prepare_mv_media(self, song: BriefSongProtocol, policy) -> Media:
+        """
+
+        .. versionadded:: 3.7.5
+        """
+        provider = self.get(song.source)
+        if provider is None:
+            raise MediaNotFound(f'provider:{song.source} not found')
+        song_v1 = self.cast_model_to_v1(song)
+        mv = song_v1.mv
+        if mv.meta.support_multi_quality:
+            media, _ = mv.select_media(policy)
+        else:
+            media = mv.media
+            if media:
+                media = Media(media)
+            else:
+                media = None
+        if not media:
+            raise MediaNotFound
         return media
 
     def song_get_lyric(self, song: BriefSongModel):

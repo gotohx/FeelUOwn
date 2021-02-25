@@ -1,4 +1,3 @@
-import asyncio
 from unittest import mock
 
 import pytest
@@ -97,20 +96,46 @@ async def test_playlist_resumed_from_eof_reached(app_mock, song, mocker,
     mock_set.assert_has_calls([mock.call(pl, song)])
 
 
-@pytest.mark.filterwarnings('ignore:coroutine')
 @pytest.mark.asyncio
-async def test_prepare_media_in_non_mainthread(app_mock, song):
+async def test_playlist_remove_current_song(app_mock):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_play_next_bad_song(app_mock, song, song1, mocker):
+    """
+    Prepare media for song raises unknown error, the song should
+    be marked as bad.
+    """
     pl = Playlist(app_mock)
-    loop = asyncio.get_event_loop()
-    try:
-        await loop.run_in_executor(None, pl.prepare_media, song)
-    except RuntimeError:
-        pytest.fail('Prepare media in non mainthread should work')
+    mocker.patch.object(pl, '_prepare_media', side_effect=Exception())
+    mock_mark_as_bad = mocker.patch.object(pl, 'mark_as_bad')
+    mock_next = mocker.patch.object(pl, 'next')
+    pl.add(song)
+    pl.add(song1)
+    pl._current_song = song
+    await pl.a_set_current_song(pl.next_song)
+    assert mock_mark_as_bad.called
+    assert mock_next.called
 
 
 def test_play_all(app_mock):
-    player = Player(app_mock)
+    player = Player(Playlist(app_mock))
     playlist = player.playlist
     playlist.mode = PlaylistMode.fm
     player.play_songs([])
     assert playlist.mode == PlaylistMode.normal
+
+
+def test_change_song(app_mock, mocker, song, song1):
+    mocker.patch.object(Player, 'play')
+    pl = Playlist(app_mock)
+    pl.add(song)
+    pl._current_song = song
+    player = Player(pl)
+    with mock.patch.object(Playlist, 'current_song',
+                           new_callable=mock.PropertyMock) as mock_s:
+        mock_s.return_value = song  # return current song
+        player.play_song(song1)
+        pl.next()
+        assert pl.current_song == song

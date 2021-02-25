@@ -15,13 +15,14 @@ from PyQt5.QtWidgets import (
     QStyle, QSizePolicy, QStyleOptionButton, QStyledItemDelegate,
 )
 
+from feeluown.utils import aio
 from feeluown.utils.dispatch import Signal
 from feeluown.excs import ProviderIOError
 from feeluown.library import ModelState, ModelFlags
 from feeluown.models import ModelExistence
 
 from feeluown.gui.mimedata import ModelMimeData
-from feeluown.gui.helpers import ItemViewNoScrollMixin
+from feeluown.gui.helpers import ItemViewNoScrollMixin, ReaderFetchMoreMixin
 
 
 logger = logging.getLogger(__name__)
@@ -177,78 +178,65 @@ class SongListView(QListView):
         self.play_song_needed.emit(index.data(Qt.UserRole))
 
 
-class SongsTableModel(QAbstractTableModel):
-    def __init__(self, songs=None, source_name_map=None, songs_g=None, parent=None):
+class SongsTableModel(QAbstractTableModel, ReaderFetchMoreMixin):
+    def __init__(self, source_name_map=None, reader=None, parent=None):
         """
 
         :param songs: 歌曲列表
         :param songs_g: 歌曲列表生成器（当歌曲列表生成器不为 None 时，忽略 songs 参数）
         """
         super().__init__(parent)
-        self.songs_g = songs_g
-        self.songs = (songs or []) if self.songs_g is None else []
-        self._can_fetch_more = self.songs_g is not None
+        self._reader = reader
+        self._fetch_more_step = 30
+        self._items = []
+        self._is_fetching = False
+
         self._source_name_map = source_name_map or {}
 
     def removeRows(self, row, count, parent=QModelIndex()):
         self.beginRemoveRows(parent, row, row + count - 1)
         while count > 0:
-            self.songs.pop(row)
+            self._items.pop(row)
             count -= 1
         self.endRemoveRows()
         return True
 
-    def canFetchMore(self, _):
-        return self._can_fetch_more
-
-    def fetchMore(self, _):
-        songs = []
-        current = len(self.songs)
-        fetched = self.songs_g.offset
-        if current < fetched:
-            # FIXME: maybe SequentialReader should support seek
-            songs = self.songs_g._objects[current:fetched]
-        else:
-            for _ in range(current, len(self.songs) + 30):
-                try:
-                    song = next(self.songs_g)
-                except StopIteration:
-                    self._can_fetch_more = False
-                    break
-                except ProviderIOError:
-                    logger.exception("fetch more failed")
-                    break
-                else:
-                    songs.append(song)
-        self.beginInsertRows(QModelIndex(), current, current + len(songs) - 1)
-        self.songs.extend(songs)
-        self.endInsertRows()
-
     def flags(self, index):
+        # Qt.NoItemFlags is ItemFlag and we should return ItemFlags
+        no_item_flags = Qt.NoItemFlags | Qt.NoItemFlags
         if index.column() in (Column.source, Column.index, Column.duration):
-            return Qt.NoItemFlags
+            return no_item_flags
+
+        # default flags
+        flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
+        if index.column() == Column.song:
+            flags |= Qt.ItemIsDragEnabled
 
         song = index.data(Qt.UserRole)
-        flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
-        if index.column() in (Column.song, Column.album):
-            flags = flags | Qt.ItemIsDragEnabled
+        # If song's state is `not_exists` or `cant_upgrade`, the album and
+        # artist columns are disabled.
+        incomplete = False
         if ModelFlags.v2 & song.meta.flags:
-            if song.state is ModelState.not_exists:
-                flags = Qt.NoItemFlags
-            elif song.state is ModelState.cant_upgrade:
-                if index.column() == Column.song:
-                    flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
-                else:
-                    flags = Qt.NoItemFlags
+            if song.state is (ModelState.not_exists, ModelState.cant_upgrade):
+                incomplete = True
         else:
             if song and song.exists == ModelExistence.no:
-                flags = Qt.NoItemFlags
+                incomplete = True
+        if incomplete:
+            if index.column() != Column.song:
+                flags = no_item_flags
+        else:
+            if index.column() == Column.album:
+                flags |= Qt.ItemIsDragEnabled
+            elif index.column() == Column.artist:
+                flags |= Qt.ItemIsEditable
+
         return flags
 
     def rowCount(self, parent=QModelIndex()):
-        return len(self.songs)
+        return len(self._items)
 
-    def columnCount(self, _):
+    def columnCount(self, _=QModelIndex()):
         return 6
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -258,7 +246,7 @@ class SongsTableModel(QAbstractTableModel):
                 if section < len(sections):
                     return sections[section]
                 return ''
-            elif role == Qt.SizeHintRole:
+            elif role == Qt.SizeHintRole and self.parent() is not None:
                 # we set height to 25 since the header can be short under macOS.
                 # HELP: set height to fixed value manually is not so elegant
                 height = 25
@@ -281,10 +269,10 @@ class SongsTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return QVariant()
-        if index.row() >= len(self.songs) or index.row() < 0:
+        if index.row() >= len(self._items) or index.row() < 0:
             return QVariant()
 
-        song = self.songs[index.row()]
+        song = self._items[index.row()]
         if role in (Qt.DisplayRole, Qt.ToolTipRole):
             if index.column() == Column.index:
                 return index.row() + 1
@@ -402,11 +390,21 @@ class SongsTableDelegate(QStyledItemDelegate):
 
     def setEditorData(self, editor, index):
         super().setEditorData(editor, index)
+
+        def cb(future):
+            try:
+                artists = future.result()
+            except:  # noqa
+                logger.error('song.artists failed')
+            else:
+                model = ArtistsModel(artists)
+                editor.setModel(model)
+                editor.setCurrentIndex(QModelIndex())
+
         if index.column() == Column.artist:
             song = index.data(role=Qt.UserRole)
-            model = ArtistsModel(song.artists)
-            editor.setModel(model)
-            editor.setCurrentIndex(QModelIndex())
+            future = aio.run_in_executor(None, lambda: song.artists)
+            future.add_done_callback(cb)
 
     def setModelData(self, editor, model, index):
         if index.column() == Column.artist:
@@ -443,7 +441,7 @@ class SongsTableDelegate(QStyledItemDelegate):
         can be uncertain. I don't know why this would happen,
         since we have set width for the header.
         """
-        if index.isValid():
+        if index.isValid() and self.parent() is not None:
             widths = (0.05, 0.1, 0.25, 0.1, 0.2, 0.3)
             width = self.parent().width()
             w = int(width * widths[index.column()])
@@ -561,9 +559,3 @@ class SongsTableView(ItemViewNoScrollMixin, QTableView):
                 self.remove_song_func(song)
                 distinct_rows.add(row)
         source_model.removeRows(indexes[0].row(), len(distinct_rows))
-
-    def mouseReleaseEvent(self, e):
-        if e.button() in (Qt.BackButton, Qt.ForwardButton):
-            e.ignore()
-        else:
-            super().mouseReleaseEvent(e)

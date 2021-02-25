@@ -4,7 +4,7 @@ import logging
 from feeluown.utils.utils import use_mpv_old
 
 if use_mpv_old():
-    from mpv_old import (
+    from mpv_old import (  # type: ignore
         MPV,
         MpvEventID,
         MpvEventEndFile,
@@ -13,7 +13,7 @@ if use_mpv_old():
         _mpv_client_api_version,
     )
 else:
-    from mpv import (
+    from mpv import (  # type: ignore
         MPV,
         MpvEventID,
         MpvEventEndFile,
@@ -38,8 +38,8 @@ class MpvPlayer(AbstractPlayer):
 
     todo: make me singleton
     """
-    def __init__(self, audio_device=b'auto', winid=None, *args, **kwargs):
-        super(MpvPlayer, self).__init__(*args, **kwargs)
+    def __init__(self, playlist, audio_device=b'auto', winid=None, **kwargs):
+        super().__init__(playlist=playlist, **kwargs)
         # https://github.com/cosven/FeelUOwn/issues/246
         locale.setlocale(locale.LC_NUMERIC, 'C')
         mpvkwargs = {}
@@ -91,6 +91,8 @@ class MpvPlayer(AbstractPlayer):
         self._mpv.terminate()
 
     def play(self, media, video=True):
+        # if not (self._app.mode & self._app.GuiMode):
+        #     video = False
         logger.debug("Player will play: '%s'", media)
         if isinstance(media, Media):
             media = media
@@ -151,7 +153,7 @@ class MpvPlayer(AbstractPlayer):
         else:
             logger.warn("can't set position when current media is empty")
 
-    @AbstractPlayer.volume.setter
+    @AbstractPlayer.volume.setter  # type: ignore
     def volume(self, value):
         super(MpvPlayer, MpvPlayer).volume.__set__(self, value)
         self._mpv.volume = self.volume
@@ -178,11 +180,14 @@ class MpvPlayer(AbstractPlayer):
         self.video_format = vformat
 
     def _on_event(self, event):
-        if event['event_id'] == MpvEventID.END_FILE:
+        event_id = event['event_id']
+        if event_id == MpvEventID.END_FILE:
             reason = event['event']['reason']
             logger.debug('Current song finished. reason: %d' % reason)
             if self.state != State.stopped and reason != MpvEventEndFile.ABORTED:
                 self.media_finished.emit()
+        elif event_id == MpvEventID.FILE_LOADED:
+            self.media_loaded.emit()
 
     def _set_http_headers(self, http_headers):
         if http_headers:

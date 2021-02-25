@@ -5,8 +5,6 @@ from collections import deque
 from urllib.parse import urlencode
 from typing import Optional
 
-from PyQt5.QtGui import QKeySequence
-
 from feeluown.utils import aio
 from feeluown.utils.router import Router, NotFound
 from feeluown.models.uri import resolve, reverse, ResolveFailed, parse_line
@@ -40,9 +38,6 @@ class Browser:
         #: the value in local_storage must be string,
         # please follow the convention
         self.local_storage = {}
-
-        self._app.hotkey_mgr.register([QKeySequence.Back], self.back)
-        self._app.hotkey_mgr.register([QKeySequence.Forward], self.forward)
 
     @property
     def ui(self):
@@ -183,6 +178,7 @@ class Browser:
         from feeluown.gui.pages.model import render as render_model
         from feeluown.gui.pages.similar_songs import render as render_similar_songs
         from feeluown.gui.pages.comment import render as render_hot_comments
+        from feeluown.gui.pages.coll_library import render as render_coll_library
 
         model_prefix = f'{MODEL_PAGE_PREFIX}<provider>'
 
@@ -190,6 +186,7 @@ class Browser:
             (f'{model_prefix}/<ns>/<identifier>', render_model),
             (f'{model_prefix}/songs/<identifier>/similar', render_similar_songs),
             (f'{model_prefix}/songs/<identifier>/hot_comments', render_hot_comments),
+            ('/colls/library', render_coll_library),
             ('/colls/<identifier>', self._render_coll),
             ('/search', render_search),
             ('/player_playlist', render_player_playlist),

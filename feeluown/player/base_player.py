@@ -27,10 +27,10 @@ class State(IntEnum):
 class AbstractPlayer(metaclass=ABCMeta):
     """Player abstrace base class"""
 
-    def __init__(self, playlist=None, **kwargs):
+    def __init__(self, playlist, **kwargs):
         self._position = 0  # seconds
         self._volume = 100  # (0, 100)
-        self._playlist = Playlist() if playlist is None else playlist
+        self._playlist = playlist
         self._state = State.stopped
         self._duration = None
 
@@ -52,6 +52,7 @@ class AbstractPlayer(metaclass=ABCMeta):
         self.media_about_to_changed = Signal()
         #: media changed signal
         self.media_changed = Signal()
+        self.media_loaded = Signal()
 
         #: volume changed signal: (int)
         self.volume_changed = Signal()
@@ -191,7 +192,6 @@ class AbstractPlayer(metaclass=ABCMeta):
         """
         if song is not None:
             if media is None:
-                self._playlist.mark_as_bad(song)
                 self._playlist.next()
             else:
                 self.play(media)

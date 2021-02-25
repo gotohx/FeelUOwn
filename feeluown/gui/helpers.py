@@ -5,6 +5,7 @@ feeluown.gui.helpers
 和应用逻辑相关的一些工具函数
 """
 import asyncio
+import itertools
 import sys
 import time
 import logging
@@ -12,17 +13,16 @@ from functools import wraps
 
 try:
     # helper module should work in no-window mode
-    from PyQt5.QtCore import QModelIndex, QSize, Qt
+    from PyQt5.QtCore import QModelIndex, QSize, Qt, pyqtSignal, QSortFilterProxyModel
     from PyQt5.QtGui import QPalette, QFontMetrics
     from PyQt5.QtWidgets import QApplication
 except ImportError:
     pass
 
+from feeluown.utils import aio
+from feeluown.excs import ProviderIOError
+
 logger = logging.getLogger(__name__)
-
-
-def get_model_type(model):
-    return model._meta.model_type
 
 
 async def async_run(func, loop=None, executor=None):
@@ -130,8 +130,14 @@ class ItemViewNoScrollMixin:
 
     def setModel(self, model):
         super().setModel(model)
+        if model is None:
+            return
         model.rowsInserted.connect(self.on_rows_changed)
         model.rowsRemoved.connect(self.on_rows_changed)
+        if isinstance(model, QSortFilterProxyModel):
+            srcModel = model.sourceModel()
+            if isinstance(srcModel, ReaderFetchMoreMixin):
+                srcModel.no_more_item.connect(self.on_rows_changed)
         self.on_rows_changed()
 
     def wheelEvent(self, e):
@@ -201,3 +207,83 @@ class Paddings(tuple):
 
 
 Margins = Paddings
+
+
+class ReaderFetchMoreMixin:
+    """
+    The class should implement
+
+    1. _reader
+    2. _items
+    3. _fetch_more_step
+    4. _is_fetching
+    """
+    no_more_item = pyqtSignal()
+
+    def canFetchMore(self, _=None):
+        return self.can_fetch_more()
+
+    def fetchMore(self, _=None):
+        if self._is_fetching is False:
+            self._is_fetching = True
+            self.fetch_more_impl()
+
+    def can_fetch_more(self, _=None):
+        reader = self._reader
+
+        count, offset = reader.count, reader.offset
+        if count is not None:
+            return count > offset + 1
+
+        # The reader sets the count when it has no more items,
+        # so it is safe to return True here
+        return True
+
+    def fetch_more_impl(self):
+        """fetch more items from reader
+        """
+        reader = self._reader
+        step = self._fetch_more_step
+
+        if reader.is_async:
+            async def fetch():
+                items = []
+                count = 0
+                async for item in reader:
+                    items.append(item)
+                    count += 1
+                    if count == step:
+                        break
+                return items
+            future = aio.create_task(fetch())
+            future.add_done_callback(self._async_fetch_cb)
+        else:
+            try:
+                items = list(itertools.islice(reader, step))
+            except ProviderIOError:
+                logger.exception('fetch more items failed')
+                self._fetch_more_cb(None)
+            else:
+                self._fetch_more_cb(items)
+
+    def on_items_fetched(self, items):
+        begin = len(self._items)
+        end = begin + len(items) - 1
+        self.beginInsertRows(QModelIndex(), begin, end)
+        self._items.extend(items)
+        self.endInsertRows()
+
+    def _fetch_more_cb(self, items):
+        self._is_fetching = False
+        if items is None:
+            return
+        self.on_items_fetched(items)
+
+    def _async_fetch_cb(self, future):
+        try:
+            items = future.result()
+        except:  # noqa
+            logger.exception('async fetch more items failed')
+            self._fetch_more_cb(None)
+        else:
+            self._fetch_more_cb(items)

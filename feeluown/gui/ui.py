@@ -6,16 +6,16 @@ from PyQt5.QtWidgets import (
 )
 
 from feeluown.utils.utils import use_mpv_old
-from feeluown.widgets.separator import Separator
+from feeluown.gui.widgets.separator import Separator
 
 if use_mpv_old():
-    from feeluown.widgets.mpv_old import MpvOpenGLWidget
+    from feeluown.gui.widgets.mpv_old import MpvOpenGLWidget
 else:
-    from feeluown.widgets.mpv import MpvOpenGLWidget
+    from feeluown.gui.widgets.mpv import MpvOpenGLWidget
 
-from feeluown.containers.left_panel import LeftPanel
-from feeluown.containers.right_panel import RightPanel
-from feeluown.containers.top_panel import TopPanel
+from feeluown.gui.uimain.sidebar import LeftPanel
+from feeluown.gui.uimain.page_view import RightPanel
+from feeluown.gui.uimain.player_bar import TopPanel
 
 from feeluown.gui.video_show import VideoShowCtl
 
@@ -33,16 +33,16 @@ class Ui:
         # NOTE: 以位置命名的部件应该只用来组织界面布局，不要
         # 给其添加任何功能性的函数
         self.top_panel = TopPanel(app, app)
-        self._left_panel_con = LeftPanel(self._app,)
+        self.sidebar = self._left_panel_con = LeftPanel(self._app,)
         self.left_panel = self._left_panel_con.p
         self.right_panel = RightPanel(self._app, self._splitter)
-        self.bottom_panel = self.right_panel.bottom_panel
+        self.toolbar = self.bottom_panel = self.right_panel.bottom_panel
         self.mpv_widget = MpvOpenGLWidget(self._app)
         self.frameless_container = None
 
         # alias
         self.magicbox = self.bottom_panel.magicbox
-        self.pc_panel = self.top_panel.pc_panel
+        self.player_bar = self.pc_panel = self.top_panel.pc_panel
         self.table_container = self.right_panel.table_container
         # backward compatible, old name is songs_table_container
         self.songs_table_container = self.table_container
