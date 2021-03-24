@@ -28,7 +28,7 @@ async def f():
     for _ in range(0, 100000):
         await loop.run_in_executor(None, lambda: obj.attr)
 
-    print(time.time() - t )
+    print(time.time() - t)
     print(time.process_time() - t_cpu)
 
 

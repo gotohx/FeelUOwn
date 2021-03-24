@@ -18,7 +18,6 @@ class VersionManager(object):
 
     async def check_release(self):
         loop = asyncio.get_event_loop()
-
         logger.info('正在检测更新...')
         try:
             resp = await loop.run_in_executor(

@@ -34,6 +34,7 @@ parse tree::
                                         |
                                    'linkin park'
 """
+import pdb
 
 from .excs import FuoSyntaxError
 from .lexer import Lexer

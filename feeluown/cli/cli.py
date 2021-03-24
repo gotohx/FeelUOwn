@@ -16,8 +16,10 @@ OUTPUT_CACHE_FILEPATH = os.path.join(CACHE_DIR, 'cli.out')
 
 
 def print_error(*args, **kwargs):
+    # 终端输出为红色
     print('\033[0;31m', end='')
     print(*args, **kwargs)
+    # 恢复默认颜色
     print('\033[0m', end='')
 
 

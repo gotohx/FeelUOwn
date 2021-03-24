@@ -2,6 +2,7 @@ cmd_handler_mapping = {}
 
 
 class HandlerMeta(type):
+    # __new__ 创建实例并返回该实例。不理解此处含义
     def __new__(cls, name, bases, attrs):
         klass = type.__new__(cls, name, bases, attrs)
         if 'cmds' in attrs:

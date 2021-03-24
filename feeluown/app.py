@@ -213,7 +213,6 @@ def create_app(config):
     mode = config.MODE
 
     if mode & App.GuiMode:
-
         from PyQt5.QtCore import Qt, QDir
         from PyQt5.QtGui import QIcon, QPixmap
         from PyQt5.QtWidgets import QApplication, QWidget
@@ -299,11 +298,11 @@ def init_app(app):
 
 
 def run_app(app):
+    print(asyncio._get_running_loop())
     loop = asyncio.get_event_loop()
-
     if app.mode & (App.DaemonMode | App.GuiMode):
+        # partial 返回一个函数对象，不立刻执行，此外，参数可以不传或者传前 n 个
         loop.call_later(10, partial(loop.create_task, app.version_mgr.check_release()))
-
     if app.mode & App.DaemonMode:
         if sys.platform.lower() == 'darwin':
             try:
@@ -327,11 +326,13 @@ def run_app(app):
     try:
         if not (app.config.MODE & (App.GuiMode | App.DaemonMode)):
             logger.warning('Fuo running with no daemon and no window')
+        print('---------------start fuo run------------------')
         loop.run_forever()
     except KeyboardInterrupt:
         # NOTE: gracefully shutdown?
         pass
     finally:
+        logger.info('end')
         _shutdown_app(app)
         loop.stop()
         loop.close()

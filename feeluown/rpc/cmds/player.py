@@ -1,3 +1,5 @@
+import pdb
+
 from collections import defaultdict
 from difflib import SequenceMatcher
 
@@ -29,6 +31,7 @@ def repr_song(song):
 
 class PlayerHandler(AbstractHandler):
     cmds = ('play', 'pause', 'stop', 'resume', 'toggle', )
+    pdb.set_trace()
 
     def handle(self, cmd):
         # TODO: 支持设置是否显示视频

@@ -1,3 +1,4 @@
+import pdb
 import asyncio
 import logging
 
@@ -21,6 +22,7 @@ async def read_request(reader):
 
     :type reader: asyncio.StreamReader
     """
+    # pdb.set_trace()
     try:
         line_bytes = await reader.readline()
     except ValueError as e:
@@ -36,6 +38,7 @@ async def read_request(reader):
     except FuoSyntaxError as e:
         raise RequestError(e.human_readabe_msg) from e
     else:
+        # pdb.set_trace()
         if not req.has_heredoc:
             return req
         word_bytes = bytes(req.heredoc_word, 'utf-8')
@@ -96,9 +99,11 @@ class FuoServerProtocol(asyncio.streams.FlowControlMixin):
         """connection handler"""
         # we should call drain after each write to do flow control,
         # though it is not so important in this case.
+        # pdb.set_trace()
         try:
             self._writer.write(b'OK fuo 3.0\r\n')
             await self._writer.drain()
+            # 继承的 FlowControlMixin 属性
             while not self._connection_lost:
                 try:
                     req = await self.read_request()
@@ -128,6 +133,7 @@ class FuoServerProtocol(asyncio.streams.FlowControlMixin):
             pass
 
     def connection_made(self, transport):
+        # pdb.set_trace()
         self._peername = transport.get_extra_info('peername')
         logger.debug('%s connceted to fuo daemon.', self._peername)
         self._reader = asyncio.StreamReader(loop=self._loop)
@@ -141,6 +147,7 @@ class FuoServerProtocol(asyncio.streams.FlowControlMixin):
 
     def connection_lost(self, exc):
         """called when our transport is closed"""
+        # pdb.set_trace()
         if self._reader is not None:
             if exc is None:
                 self._reader.feed_eof()

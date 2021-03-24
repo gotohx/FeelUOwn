@@ -1,11 +1,17 @@
+import pdb
 import re
 import sys
 from collections import namedtuple, deque
 
 from .excs import FuoSyntaxError
 
+import logging
+logger = logging.getLogger(__name__)
 
 # 注：下面很多正则都是从 jinja2/lexer.py 和 pygments/lexer.py 拷贝过来
+# \w 匹配字母或数字或下划线或汉字
+# \s 匹配任意的空白
+# \d 匹配数字
 TOKEN_NAME = sys.intern('name')
 TOKEN_FURI = sys.intern('furi')  # fuo uri
 TOKEN_STRING = sys.intern('string')
@@ -109,6 +115,8 @@ class Lexer:
         # 实现时会给 token 带上 #pop 标记，这个标记也是用来配合栈的
         state_stack = deque()
         state = 'root'
+        logger.info(source)
+        # pdb.set_trace()
         while 1:
             for rule in state_rules[state]:
                 type_, regex = rule
